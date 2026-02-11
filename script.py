@@ -19,7 +19,7 @@ class Config:
 
     # Abas
     compras_sheet_name: str = "Sugestão de Compras"
-    estoque_sheet_name: str 
+    estoque_sheet_name: Optional[str] = None
 
     # Cabeçalhos na aba de compras (nomes no cabeçalho da linha 1)
     product_code_header: str = "Cód. produto"
@@ -259,11 +259,20 @@ def main(cfg: Config) -> None:
 
     if cfg.compras_sheet_name not in wb_compras.sheetnames:
         raise ValueError(f"Aba '{cfg.compras_sheet_name}' não existe no arquivo de compras. Abas: {wb_compras.sheetnames}")
-    if cfg.estoque_sheet_name not in wb_estoque.sheetnames:
-        raise ValueError(f"Aba '{cfg.estoque_sheet_name}' não existe no arquivo de estoque. Abas: {wb_estoque.sheetnames}")
+    if cfg.estoque_sheet_name is None:
+        if len(wb_estoque.sheetnames) != 1:
+            raise ValueError(
+                "Arquivo de estoque deve conter apenas uma aba quando estoque_sheet_name não é informado. "
+                f"Abas encontradas: {wb_estoque.sheetnames}"
+            )
+        estoque_sheet_name = wb_estoque.sheetnames[0]
+    else:
+        if cfg.estoque_sheet_name not in wb_estoque.sheetnames:
+            raise ValueError(f"Aba '{cfg.estoque_sheet_name}' não existe no arquivo de estoque. Abas: {wb_estoque.sheetnames}")
+        estoque_sheet_name = cfg.estoque_sheet_name
 
     ws_compras = wb_compras[cfg.compras_sheet_name]
-    ws_estoque = wb_estoque[cfg.estoque_sheet_name]
+    ws_estoque = wb_estoque[estoque_sheet_name]
 
     header_map = read_header_map(ws_compras)
 
@@ -316,21 +325,21 @@ def main(cfg: Config) -> None:
     # Cria abas por categoria
     for cat, cat_rows in sorted(by_category.items(), key=lambda x: x[0].lower()):
         ws_cat = wb_out.create_sheet(title=safe_sheet_title(wb_out, cat))
-        write_sheet(ws_cat, kept_headers, cat_rows, cfg, stock_sheet_name_in_output=cfg.estoque_sheet_name)
+        write_sheet(ws_cat, kept_headers, cat_rows, cfg, stock_sheet_name_in_output=estoque_sheet_name)
 
     # Adiciona estoque como última aba (copiando de arquivo separado)
-    stock_title = safe_sheet_title(wb_out, cfg.estoque_sheet_name)
+    stock_title = safe_sheet_title(wb_out, estoque_sheet_name)
     # Se o safe_sheet_title ajustou o nome (duplicado), precisamos usar o nome real no lookup.
     # Para simplificar: força o nome exatamente como cfg.estoque_sheet_name se estiver livre.
-    if cfg.estoque_sheet_name not in wb_out.sheetnames:
-        stock_title = cfg.estoque_sheet_name
+    if estoque_sheet_name not in wb_out.sheetnames:
+        stock_title = estoque_sheet_name
 
     ws_out_stock = wb_out.create_sheet(title=stock_title)
     copy_sheet_values_dedup_cost_zero(ws_estoque, ws_out_stock, cfg)
 
     # IMPORTANTE: se stock_title != cfg.estoque_sheet_name, as fórmulas apontariam para nome diferente.
     # Por isso acima tentamos garantir o nome exato. Evite criar categoria chamada "Estoque".
-    if stock_title != cfg.estoque_sheet_name:
+    if stock_title != estoque_sheet_name:
         print(f"Atenção: aba estoque foi criada como '{stock_title}'. Evite categoria com nome 'Estoque'.")
 
     wb_out.save(output_path)
@@ -349,7 +358,6 @@ if __name__ == "__main__":
         estoque_xlsx=sys.argv[2],
         output_xlsx=sys.argv[3],
         compras_sheet_name="Sugestão de Compras",
-        estoque_sheet_name="Estoque 2026-01-27.xlsx",
         product_code_header="Cód. produto",
         category_header="CATEGORIA",
         cost_insert_at_col_letter="C",
